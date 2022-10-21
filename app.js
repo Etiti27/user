@@ -1,6 +1,8 @@
 require('dotenv').config()
-const bcrypt=require('bcrypt');
-const saltRounds=20;
+const session= require('express-session');
+const passport=require('passport')
+const passportLocalMongoose=require('passport-local-mongoose')
+
 const express= require('express');
 const bodyParser=require('body-parser');
 const ejs= require('ejs');
@@ -9,94 +11,120 @@ const app= express();
 app.set('view engine', 'ejs');
 app.use('/public', express.static(__dirname + '/public'));
 app.use(bodyParser.urlencoded({ extended: true }));
-const prompt = require('prompt')
+app.use(session({secret:process.env.SECRET, 
+resave:false,
+  saveUninitialized:false
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+
 const alert= require ('alert')
-const encrypt=require('mongoose-encryption');
+
 //const prompt=require('prompt')
 mongoose.connect('mongodb://localhost:27017/userDB');
 const userSchema= new mongoose.Schema({
-    email:String,
+    username:String,
     name:String,
-    password:String
+    password:String,
+    company:String
 });
+userSchema.plugin(passportLocalMongoose)
 
-userSchema.plugin(encrypt, {secret:process.env.SECRET,encryptedFields:['password']})
+const User =mongoose.model('User', userSchema)
 
-const User=mongoose.model('User', userSchema)
+// passport.use(User.createStrategy());
+// passport.serializeUser(function(user, done) {
+//     done(null, user);
+//   });
+  
+//   passport.deserializeUser(function(user, done) {
+//     done(null, user);
+//   });
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
+// passport.serializeUser(User.serializeUser());
+// passport.deserializeUser(User.deserializeUser());
 
 app.get('/', (req, res) => {
     res.render('home')
 })
+app.get('/secret', (req,res)=>{
+    
+        if(req.isAuthenticated()){
+            res.render('secret')
+        }else{
+            res.redirect('/login')
+        }
+
+    })
+    
+//    app.get('/logout', function(req, res){
+//     req.logout()
+//     res.redirect('/')
+    
+//    })    
+
+
+    
+    
 
 app.get('/login', (req, res) => {
     res.render('login')
 })
+app.get("/logout", (req, res) => {
+
+    req.logout(function(err){
+        if (err) { console.log(err) }
+        else{res.redirect('/')}
+        
+      });
+      
+});
 
 app.get('/register', (req, res) => {
     res.render('register')
 })
 
 app.post('/register', (req, res) => {
-    bcrypt.hash(req.body.password, saltRounds,(err,hash)=>{
-    const name= req.body.name;
-    const userName=req.body.userName;
-    const password=hash;
-
-
-    const newUser=new User({
-        email:userName,
-        name:name,
-        password:password   
-       });
-       User.findOne({email:userName}, (err, user) => {
-           if(user){
-               console.log(`${user.email} Already exists`);
-               alert(`${user.email} already exist`)
-               //res.send(`${user.email} already exist`)
-               
-       
-               res.redirect('/register')
-           }else{
-               newUser.save((err)=>{
-                   if(!err){
-                       res.render('secret', {name:name})
-       
-       
-                   }
-           
-                   }
-               )
-       
-           }
-       })
-    
-    }) 
-
-    
+    User.register({
+        username:req.body.username, 
+        name:req.body.name, 
+        company:req.body.company
+    },
+    req.body.password,
+         (err,user)=>{
+        if(err){
+            console.log(err);
+            res.redirect('/register')
+        }else{ 
+                     passport.authenticate("local")(req,res, ()=>{
+                    res.redirect('/secret')
+                     })
+                    }
+        })
+            
+        
 })
 
+               
+       
 app.post('/login', (req, res)=>{
-    const userName=req.body.userName;
-    const password=req.body.password;
-User.findOne({email:userName}, (err,found)=>{
+const user =new User({
+    username:req.body.username,
+    passport:req.body.password
+})
+req.login(user, function(err){
     if(err){
-        console.log(err)
-    } 
-    else{
-        if(found){
-            bcrypt.compare(password, found.password, (err, result)=>{
-                if (result===true){
-                    res.render('secret', {name:found.name})
-                }
-            })
-            
-            }else{
-                alert(`unmatch or wrong password or usernameS`)
-                console.log(`umatched`);
-                res.redirect('/login')
-            }
-        }
-    })
+        console.log(err);
+        
+    }else{
+        passport.authenticate("local")(req, res, function(){
+            res.redirect('/secret')
+        })
+    }
+   
+})
+
 })
 
 
